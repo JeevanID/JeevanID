@@ -14,25 +14,32 @@ export function useOTP(options: UseOTPOptions = {}) {
   const [otpSent, setOtpSent] = useState(false);
 
   const sendOTP = useCallback(async (request: SendOTPRequest) => {
+    console.log('🎯 useOTP: Starting sendOTP process', request);
     setIsLoading(true);
     setError('');
     
     try {
+      console.log('🔄 useOTP: Calling otpService.sendOTP');
       const response = await otpService.sendOTP(request);
+      console.log('✅ useOTP: Got response from otpService', response);
       
       if (response.success) {
         setOtpSent(true);
+        console.log('🎉 useOTP: OTP sent successfully, calling onSendSuccess');
         options.onSendSuccess?.(response);
       } else {
+        console.log('❌ useOTP: OTP send failed', response.message);
         setError(response.message);
         options.onSendError?.(response.message);
       }
     } catch (err) {
+      console.error('💥 useOTP: Exception in sendOTP', err);
       const errorMessage = 'Failed to send OTP. Please try again.';
       setError(errorMessage);
       options.onSendError?.(errorMessage);
     } finally {
       setIsLoading(false);
+      console.log('🏁 useOTP: sendOTP process completed');
     }
   }, [options]);
 

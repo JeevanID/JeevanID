@@ -57,11 +57,16 @@ class OTPService {
   // Send OTP to mobile number
   async sendOTP(request: SendOTPRequest): Promise<OTPResponse> {
     console.log(`🚀 Sending OTP to ${request.mobileNumber} for ${request.purpose}`);
+    console.log('📡 Backend URL:', `${this.baseURL}/otp/send`);
+    console.log('📦 Request payload:', JSON.stringify(request));
     
-    return this.makeRequest('/otp/send', {
+    const result = await this.makeRequest('/otp/send', {
       method: 'POST',
       body: JSON.stringify(request)
     });
+    
+    console.log('📨 Backend response:', result);
+    return result;
   }
 
   // Verify OTP

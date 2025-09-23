@@ -68,10 +68,20 @@ export function Login() {
 
   const handleSendOTP = async () => {
     const identifier = loginMethod === 'mobile' ? formData.mobileNumber : formData.jeevanId;
-    await sendOTP({
-      mobileNumber: identifier,
-      purpose: 'login'
-    });
+    console.log('🔘 Login: Send OTP button clicked');
+    console.log('📱 Login: Identifier:', identifier);
+    console.log('🎯 Login: Login method:', loginMethod);
+    console.log('📝 Login: Form data:', formData);
+    
+    try {
+      await sendOTP({
+        mobileNumber: identifier,
+        purpose: 'login'
+      });
+      console.log('✅ Login: sendOTP completed');
+    } catch (error) {
+      console.error('❌ Login: sendOTP failed', error);
+    }
   };
 
   const handleResendOTP = async () => {
