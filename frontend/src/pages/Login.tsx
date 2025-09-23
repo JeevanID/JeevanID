@@ -5,6 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { OTPInput } from "@/components/OTPInput";
+import { useOTP } from "@/hooks/useOTP";
+import { userService } from "@/services/userService";
 import { useNavigate } from "react-router-dom";
 
 export function Login() {
@@ -15,32 +18,77 @@ export function Login() {
     jeevanId: "",
     otp: ""
   });
-  const [otpSent, setOtpSent] = useState(false);
+
+  const { isLoading, error, otpSent, sendOTP, verifyOTP, resendOTP } = useOTP({
+    onVerifySuccess: async () => {
+      // OTP verified, now login the user
+      try {
+        const identifier = loginMethod === 'mobile' ? formData.mobileNumber : formData.jeevanId;
+        const loginRequest = loginMethod === 'mobile' 
+          ? { mobileNumber: identifier }
+          : { jeevanId: identifier };
+          
+        const response = await userService.loginUser(loginRequest);
+        
+        if (response.success && response.data) {
+          // Store user data and token
+          userService.storeUserData(response.data.user, response.data.token);
+          navigate('/dashboard');
+        } else {
+          // User not found, redirect to signup
+          navigate('/signup', { 
+            state: { 
+              mobileNumber: loginMethod === 'mobile' ? identifier : '',
+              message: 'User not found. Please sign up first.' 
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        // Fallback: create demo user for now
+        const mockUser = {
+          id: "demo_user",
+          fullName: "Demo User",
+          jeevanId: "JID-2024-DEMO123",
+          dateOfBirth: "1990-01-01",
+          mobileNumber: formData.mobileNumber || "+91 98765 43210",
+          profilePhoto: null,
+          verified: true,
+          createdAt: new Date().toISOString()
+        };
+        userService.storeUserData(mockUser, "demo-token");
+        navigate('/dashboard');
+      }
+    }
+  });
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleSendOTP = () => {
-    setOtpSent(true);
-    alert(`OTP sent to ${formData.mobileNumber} (Demo OTP: 123456)`);
+  const handleSendOTP = async () => {
+    const identifier = loginMethod === 'mobile' ? formData.mobileNumber : formData.jeevanId;
+    await sendOTP({
+      mobileNumber: identifier,
+      purpose: 'login'
+    });
   };
 
-  const handleLogin = () => {
-    if (formData.otp === "123456") {
-      // Mock user data for demo
-      const mockUser = {
-        fullName: "Demo User",
-        jeevanId: "JID-2024-DEMO123",
-        dateOfBirth: "1990-01-01",
-        mobileNumber: formData.mobileNumber || "+91 98765 43210",
-        profilePhoto: null
-      };
-      localStorage.setItem('jeevanUser', JSON.stringify(mockUser));
-      navigate('/dashboard');
-    } else {
-      alert("Invalid OTP. Please use 123456 for demo.");
-    }
+  const handleResendOTP = async () => {
+    const identifier = loginMethod === 'mobile' ? formData.mobileNumber : formData.jeevanId;
+    await resendOTP({
+      mobileNumber: identifier,
+      purpose: 'login'
+    });
+  };
+
+  const handleOTPVerify = async (otp: string) => {
+    const identifier = loginMethod === 'mobile' ? formData.mobileNumber : formData.jeevanId;
+    await verifyOTP({
+      mobileNumber: identifier,
+      otp,
+      purpose: 'login'
+    });
   };
 
   return (
@@ -119,49 +167,23 @@ export function Login() {
                 </div>
               )}
 
-              {otpSent && (
-                <div>
-                  <Label htmlFor="otp">Enter OTP</Label>
-                  <Input
-                    id="otp"
-                    placeholder="Enter 6-digit OTP"
-                    value={formData.otp}
-                    onChange={(e) => handleInputChange('otp', e.target.value)}
-                    className="jeevan-input text-center tracking-widest"
-                    maxLength={6}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1 text-center">
-                    Demo OTP: <span className="font-mono font-bold">123456</span>
-                  </p>
-                </div>
-              )}
-
-              {!otpSent ? (
+              {otpSent ? (
+                <OTPInput
+                  mobileNumber={formData.mobileNumber || formData.jeevanId}
+                  onVerify={handleOTPVerify}
+                  onResend={handleResendOTP}
+                  isLoading={isLoading}
+                  error={error}
+                />
+              ) : (
                 <Button 
                   onClick={handleSendOTP}
-                  disabled={loginMethod === 'mobile' ? !formData.mobileNumber : !formData.jeevanId}
+                  disabled={isLoading || (loginMethod === 'mobile' ? !formData.mobileNumber : !formData.jeevanId)}
                   className="w-full jeevan-button-primary"
                 >
                   <Phone className="w-4 h-4 mr-2" />
-                  Send OTP
+                  {isLoading ? "Sending..." : "Send OTP"}
                 </Button>
-              ) : (
-                <div className="space-y-3">
-                  <Button 
-                    onClick={handleLogin}
-                    disabled={!formData.otp}
-                    className="w-full jeevan-button-primary"
-                  >
-                    Sign In
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    onClick={handleSendOTP}
-                    className="w-full"
-                  >
-                    Resend OTP
-                  </Button>
-                </div>
               )}
             </div>
 

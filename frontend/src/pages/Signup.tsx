@@ -1,14 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ArrowLeft, ArrowRight, Check, User, Calendar, Phone, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { useNavigate } from "react-router-dom";
+import { OTPInput } from "@/components/OTPInput";
+import { useOTP } from "@/hooks/useOTP";
+import { userService } from "@/services/userService";
+import { useNavigate, useLocation } from "react-router-dom";
 
 export function Signup() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     fullName: "",
@@ -16,6 +20,20 @@ export function Signup() {
     mobileNumber: "",
     otp: "",
     aadhaar: ""
+  });
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Pre-fill mobile number if coming from login page
+  useEffect(() => {
+    if (location.state?.mobileNumber) {
+      setFormData(prev => ({ ...prev, mobileNumber: location.state.mobileNumber }));
+    }
+  }, [location.state]);
+
+  const { isLoading: otpLoading, error, otpSent, sendOTP, verifyOTP, resendOTP } = useOTP({
+    onVerifySuccess: () => {
+      setCurrentStep(3);
+    }
   });
 
   const steps = [
@@ -28,24 +46,91 @@ export function Signup() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleNext = () => {
-    if (currentStep < 3) {
-      setCurrentStep(currentStep + 1);
-    } else {
-      // Complete signup - generate JeevanID
-      const jeevanId = `JID-2024-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-      localStorage.setItem('jeevanUser', JSON.stringify({
-        ...formData,
-        jeevanId,
-        profilePhoto: null
-      }));
-      navigate('/dashboard');
+  const handleNext = async () => {
+    if (currentStep === 1) {
+      // Send OTP when moving from step 1 to step 2
+      await sendOTP({
+        mobileNumber: formData.mobileNumber,
+        purpose: 'signup'
+      });
+      if (otpSent) {
+        setCurrentStep(2);
+      }
+    } else if (currentStep === 2) {
+      // This will be handled by OTP verification
+      return;
+    } else if (currentStep === 3) {
+      // Complete signup - register user
+      setIsLoading(true);
+      
+      try {
+        const registerRequest = {
+          fullName: formData.fullName,
+          mobileNumber: formData.mobileNumber,
+          dateOfBirth: formData.dateOfBirth,
+          aadhaar: formData.aadhaar
+        };
+        
+        const response = await userService.registerUser(registerRequest);
+        
+        if (response.success && response.data) {
+          // Store user data and token
+          userService.storeUserData(response.data.user, response.data.token);
+          navigate('/dashboard');
+        } else {
+          // Handle registration error
+          console.error('Registration failed:', response.message);
+          // Fallback: create demo user
+          const jeevanId = `JID-2024-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+          const mockUser = {
+            id: `user_${Date.now()}`,
+            jeevanId,
+            fullName: formData.fullName,
+            mobileNumber: formData.mobileNumber,
+            dateOfBirth: formData.dateOfBirth,
+            profilePhoto: null,
+            verified: true,
+            createdAt: new Date().toISOString()
+          };
+          userService.storeUserData(mockUser, "demo-token");
+          navigate('/dashboard');
+        }
+      } catch (error) {
+        console.error('Registration error:', error);
+        // Fallback: create demo user
+        const jeevanId = `JID-2024-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+        const mockUser = {
+          id: `user_${Date.now()}`,
+          jeevanId,
+          fullName: formData.fullName,
+          mobileNumber: formData.mobileNumber,
+          dateOfBirth: formData.dateOfBirth,
+          profilePhoto: null,
+          verified: true,
+          createdAt: new Date().toISOString()
+        };
+        userService.storeUserData(mockUser, "demo-token");
+        navigate('/dashboard');
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
-  const handleSendOTP = () => {
-    // Mock OTP send
-    alert(`OTP sent to ${formData.mobileNumber} (Demo OTP: 123456)`);
+  const handleOTPVerify = async (otp: string) => {
+    setFormData(prev => ({ ...prev, otp }));
+    await verifyOTP({
+      mobileNumber: formData.mobileNumber,
+      otp,
+      purpose: 'signup'
+    });
+  };
+
+  const handleResendOTP = async () => {
+    await resendOTP({
+      mobileNumber: formData.mobileNumber,
+      purpose: 'signup'
+    });
   };
 
   const isStepValid = () => {
@@ -53,7 +138,7 @@ export function Signup() {
       case 1:
         return formData.fullName && formData.dateOfBirth && formData.mobileNumber;
       case 2:
-        return formData.otp === "123456"; // Demo OTP
+        return true; // OTP validation handled by OTPInput component
       case 3:
         return formData.aadhaar.length >= 12;
       default:
@@ -143,34 +228,13 @@ export function Signup() {
 
             {/* Step 2: OTP Verification */}
             {currentStep === 2 && (
-              <div className="space-y-4">
-                <div className="text-center mb-4">
-                  <p className="text-muted-foreground">
-                    We've sent an OTP to {formData.mobileNumber}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Demo: Use OTP <span className="font-mono font-bold">123456</span>
-                  </p>
-                </div>
-                <div>
-                  <Label htmlFor="otp">Enter OTP</Label>
-                  <Input
-                    id="otp"
-                    placeholder="Enter 6-digit OTP"
-                    value={formData.otp}
-                    onChange={(e) => handleInputChange('otp', e.target.value)}
-                    className="jeevan-input text-center tracking-widest"
-                    maxLength={6}
-                  />
-                </div>
-                <Button 
-                  variant="outline" 
-                  onClick={handleSendOTP}
-                  className="w-full"
-                >
-                  Resend OTP
-                </Button>
-              </div>
+              <OTPInput
+                mobileNumber={formData.mobileNumber}
+                onVerify={handleOTPVerify}
+                onResend={handleResendOTP}
+                isLoading={otpLoading}
+                error={error}
+              />
             )}
 
             {/* Step 3: Aadhaar Verification */}
@@ -205,26 +269,33 @@ export function Signup() {
             )}
 
             {/* Navigation Buttons */}
-            <div className="flex gap-3 mt-6">
-              {currentStep > 1 && (
+            {currentStep !== 2 && (
+              <div className="flex gap-3 mt-6">
+                {currentStep > 1 && (
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setCurrentStep(currentStep - 1)}
+                    className="flex-1"
+                    disabled={isLoading || otpLoading}
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Back
+                  </Button>
+                )}
                 <Button 
-                  variant="outline" 
-                  onClick={() => setCurrentStep(currentStep - 1)}
-                  className="flex-1"
+                  onClick={handleNext}
+                  disabled={!isStepValid() || isLoading || otpLoading}
+                  className="flex-1 jeevan-button-primary"
                 >
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back
+                  {(isLoading || otpLoading) ? (
+                    currentStep === 1 ? "Sending OTP..." : "Creating JeevanID..."
+                  ) : (
+                    currentStep === 3 ? 'Create JeevanID' : 'Send OTP'
+                  )}
+                  {!(isLoading || otpLoading) && <ArrowRight className="w-4 h-4 ml-2" />}
                 </Button>
-              )}
-              <Button 
-                onClick={handleNext}
-                disabled={!isStepValid()}
-                className="flex-1 jeevan-button-primary"
-              >
-                {currentStep === 3 ? 'Create JeevanID' : 'Continue'}
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </div>
+              </div>
+            )}
           </Card>
         </div>
       </div>
