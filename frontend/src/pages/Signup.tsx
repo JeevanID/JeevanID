@@ -31,7 +31,21 @@ export function Signup() {
   }, [location.state]);
 
   const { isLoading: otpLoading, error, otpSent, sendOTP, verifyOTP, resendOTP } = useOTP({
+    onSendSuccess: (response) => {
+      console.log('✅ Signup: OTP sent successfully, moving to step 2', response);
+      // Show the OTP if in demo mode
+      if (response.data?.otp) {
+        console.log('🎯 Demo OTP:', response.data.otp);
+        alert(`Demo Mode: OTP is ${response.data.otp}`);
+      }
+      setCurrentStep(2);
+    },
+    onSendError: (error) => {
+      console.error('❌ Signup: Failed to send OTP', error);
+      alert(`Failed to send OTP: ${error}`);
+    },
     onVerifySuccess: () => {
+      console.log('✅ Signup: OTP verified successfully, moving to step 3');
       setCurrentStep(3);
     }
   });
@@ -49,13 +63,18 @@ export function Signup() {
   const handleNext = async () => {
     if (currentStep === 1) {
       // Send OTP when moving from step 1 to step 2
+      const cleanMobile = formData.mobileNumber.startsWith('+91') 
+        ? formData.mobileNumber 
+        : '+91' + formData.mobileNumber;
+      
+      console.log('🚀 Signup: Sending OTP for mobile:', cleanMobile);
+      console.log('📝 Signup: Original mobile input:', formData.mobileNumber);
+      
       await sendOTP({
-        mobileNumber: formData.mobileNumber,
+        mobileNumber: cleanMobile,
         purpose: 'signup'
       });
-      if (otpSent) {
-        setCurrentStep(2);
-      }
+      // Step transition will be handled by onSendSuccess callback
     } else if (currentStep === 2) {
       // This will be handled by OTP verification
       return;

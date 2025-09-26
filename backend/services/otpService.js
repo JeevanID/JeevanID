@@ -12,8 +12,11 @@ class OTPService {
       );
     }
 
+    // OTP storage for demo mode
+    this.otpStorage = new Map();
+
     // Initialize email transporter
-    this.emailTransporter = nodemailer.createTransporter({
+    this.emailTransporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: process.env.SMTP_PORT,
       secure: false,
@@ -49,29 +52,65 @@ class OTPService {
       .digest('hex');
   }
 
-  // Send OTP via Twilio SMS
-  async sendSMSViaTwilio(phoneNumber, otp, purpose = 'verification') {
-    if (!this.twilioClient) {
-      throw new Error('Twilio not configured');
+  // Send OTP via Twilio Verify Service
+  async sendSMSViaTwilio(phoneNumber, purpose = 'verification') {
+    if (!this.twilioClient || !process.env.TWILIO_VERIFY_SERVICE_SID) {
+      throw new Error('Twilio Verify service not configured');
     }
 
-    const message = this.formatOTPMessage(otp, purpose);
-    
     try {
-      const result = await this.twilioClient.messages.create({
-        body: message,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: phoneNumber
-      });
+      const cleanPhone = this.cleanMobileNumber(phoneNumber);
+      
+      const verification = await this.twilioClient.verify.v2
+        .services(process.env.TWILIO_VERIFY_SERVICE_SID)
+        .verifications
+        .create({
+          to: cleanPhone,
+          channel: 'sms'
+        });
+      
+      console.log(`📱 OTP sent via Twilio Verify to ${cleanPhone}, SID: ${verification.sid}`);
       
       return {
         success: true,
-        messageId: result.sid,
-        provider: 'twilio'
+        messageId: verification.sid,
+        provider: 'twilio-verify',
+        status: verification.status,
+        to: verification.to
       };
     } catch (error) {
-      console.error('Twilio SMS Error:', error);
-      throw new Error(`Failed to send SMS via Twilio: ${error.message}`);
+      console.error('Twilio Verify Error:', error);
+      throw new Error(`Failed to send OTP via Twilio Verify: ${error.message}`);
+    }
+  }
+
+  // Verify OTP via Twilio Verify Service
+  async verifyOTPViaTwilio(phoneNumber, code) {
+    if (!this.twilioClient || !process.env.TWILIO_VERIFY_SERVICE_SID) {
+      throw new Error('Twilio Verify service not configured');
+    }
+
+    try {
+      const cleanPhone = this.cleanMobileNumber(phoneNumber);
+      
+      const verificationCheck = await this.twilioClient.verify.v2
+        .services(process.env.TWILIO_VERIFY_SERVICE_SID)
+        .verificationChecks
+        .create({
+          to: cleanPhone,
+          code: code
+        });
+      
+      console.log(`✅ OTP verification result for ${cleanPhone}: ${verificationCheck.status}`);
+      
+      return {
+        success: verificationCheck.status === 'approved',
+        status: verificationCheck.status,
+        sid: verificationCheck.sid
+      };
+    } catch (error) {
+      console.error('Twilio Verify Check Error:', error);
+      throw new Error(`Failed to verify OTP via Twilio: ${error.message}`);
     }
   }
 
@@ -118,38 +157,152 @@ class OTPService {
 
   // Main method to send OTP
   async sendOTP(phoneNumber, purpose = 'verification') {
-    const otp = this.generateOTP();
+    const cleanPhone = this.cleanMobileNumber(phoneNumber);
     const expiryTime = new Date(Date.now() + (process.env.OTP_EXPIRY_MINUTES * 60 * 1000));
     
     let result;
     
     try {
       if (this.demoMode) {
-        result = await this.sendMockSMS(phoneNumber, otp, purpose);
-      } else if (this.twilioClient) {
-        result = await this.sendSMSViaTwilio(phoneNumber, otp, purpose);
+        const otp = this.generateOTP();
+        this.storeOTPForDemo(cleanPhone, otp, purpose);
+        result = await this.sendMockSMS(cleanPhone, otp, purpose);
+        
+        return {
+          success: true,
+          otp: otp, // Return OTP in demo mode
+          expiryTime: expiryTime,
+          provider: result.provider,
+          messageId: result.messageId,
+          to: cleanPhone
+        };
+      } else if (this.twilioClient && process.env.TWILIO_VERIFY_SERVICE_SID) {
+        result = await this.sendSMSViaTwilio(cleanPhone, purpose);
+        
+        return {
+          success: true,
+          expiryTime: expiryTime,
+          provider: result.provider,
+          messageId: result.messageId,
+          status: result.status,
+          to: result.to
+        };
       } else {
         throw new Error('No SMS provider configured');
       }
-
-      return {
-        success: true,
-        otp: this.demoMode ? otp : undefined, // Only return OTP in demo mode
-        hash: this.generateOTPHash(phoneNumber, otp),
-        expiryTime: expiryTime,
-        provider: result.provider,
-        messageId: result.messageId
-      };
     } catch (error) {
       console.error('OTP Send Error:', error);
       throw error;
     }
   }
 
-  // Verify OTP
-  verifyOTP(phoneNumber, providedOTP, storedHash) {
-    const generatedHash = this.generateOTPHash(phoneNumber, providedOTP);
-    return generatedHash === storedHash;
+  // Main method to verify OTP
+  async verifyOTPCode(phoneNumber, code, purpose = 'verification') {
+    const cleanPhone = this.cleanMobileNumber(phoneNumber);
+    
+    try {
+      if (this.demoMode) {
+        return this.verifyDemoOTP(cleanPhone, code);
+      } else if (this.twilioClient && process.env.TWILIO_VERIFY_SERVICE_SID) {
+        const result = await this.verifyOTPViaTwilio(cleanPhone, code);
+        return {
+          success: result.success,
+          verified: result.success,
+          status: result.status,
+          phoneNumber: cleanPhone,
+          purpose: purpose
+        };
+      } else {
+        throw new Error('No verification service configured');
+      }
+    } catch (error) {
+      console.error('OTP Verify Error:', error);
+      throw error;
+    }
+  }
+
+  // Store OTP for demo mode
+  storeOTPForDemo(phoneNumber, otp, purpose) {
+    this.otpStorage.set(phoneNumber, {
+      otp,
+      purpose,
+      expiry: Date.now() + (process.env.OTP_EXPIRY_MINUTES * 60 * 1000),
+      attempts: 0,
+      createdAt: new Date()
+    });
+  }
+
+  // Verify OTP in demo mode
+  verifyDemoOTP(phoneNumber, providedOTP) {
+    const storedData = this.otpStorage.get(phoneNumber);
+    
+    if (!storedData) {
+      return {
+        success: false,
+        verified: false,
+        message: 'OTP not found or expired',
+        error: 'OTP_NOT_FOUND'
+      };
+    }
+
+    if (Date.now() > storedData.expiry) {
+      this.otpStorage.delete(phoneNumber);
+      return {
+        success: false,
+        verified: false,
+        message: 'OTP has expired',
+        error: 'OTP_EXPIRED'
+      };
+    }
+
+    if (storedData.attempts >= 3) {
+      this.otpStorage.delete(phoneNumber);
+      return {
+        success: false,
+        verified: false,
+        message: 'Maximum verification attempts exceeded',
+        error: 'MAX_ATTEMPTS_EXCEEDED'
+      };
+    }
+
+    if (storedData.otp !== providedOTP) {
+      storedData.attempts++;
+      return {
+        success: false,
+        verified: false,
+        message: 'Invalid OTP',
+        error: 'INVALID_OTP',
+        remainingAttempts: 3 - storedData.attempts
+      };
+    }
+
+    // OTP verified successfully
+    this.otpStorage.delete(phoneNumber);
+    return {
+      success: true,
+      verified: true,
+      message: 'OTP verified successfully',
+      phoneNumber: phoneNumber
+    };
+  }
+
+  // Clean mobile number format
+  cleanMobileNumber(mobileNumber) {
+    // Remove spaces, dashes, and parentheses
+    let cleaned = mobileNumber.replace(/[\s\-\(\)]/g, '');
+    
+    // Add country code if not present
+    if (!cleaned.startsWith('+')) {
+      if (cleaned.startsWith('91') && cleaned.length === 12) {
+        cleaned = '+' + cleaned;
+      } else if (cleaned.length === 10) {
+        cleaned = '+91' + cleaned;
+      } else {
+        cleaned = '+' + cleaned;
+      }
+    }
+    
+    return cleaned;
   }
 
   // Format OTP message for SMS

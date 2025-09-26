@@ -71,16 +71,6 @@ router.post('/send', [
     // Send OTP
     const otpResult = await otpService.sendOTP(mobileNumber, purpose);
     
-    // Store OTP data
-    const stored = await storageService.storeOTP(mobileNumber, purpose, otpResult);
-    
-    if (!stored) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to store OTP data'
-      });
-    }
-
     // Response (don't include actual OTP in production)
     const response = {
       success: true,
@@ -88,7 +78,8 @@ router.post('/send', [
       data: {
         expiryMinutes: process.env.OTP_EXPIRY_MINUTES,
         provider: otpResult.provider,
-        messageId: otpResult.messageId
+        messageId: otpResult.messageId,
+        to: otpResult.to
       }
     };
 
@@ -131,52 +122,27 @@ router.post('/verify', [
 
     const { mobileNumber, otp, purpose } = req.body;
 
-    // Get stored OTP data
-    const storedOTP = await storageService.getOTP(mobileNumber, purpose);
+    // Verify OTP using the service
+    const verificationResult = await otpService.verifyOTPCode(mobileNumber, otp, purpose);
     
-    if (!storedOTP) {
+    if (!verificationResult.success) {
       return res.status(400).json({
         success: false,
-        message: 'OTP not found or expired. Please request a new OTP.'
+        message: verificationResult.message || 'Invalid OTP. Please try again.',
+        error: verificationResult.error,
+        data: verificationResult.remainingAttempts ? {
+          remainingAttempts: verificationResult.remainingAttempts
+        } : null
       });
     }
 
-    // Check attempt limit
-    if (storedOTP.attempts >= process.env.MAX_OTP_ATTEMPTS) {
-      await storageService.deleteOTP(mobileNumber, purpose);
-      return res.status(400).json({
-        success: false,
-        message: 'Maximum OTP attempts exceeded. Please request a new OTP.'
-      });
-    }
-
-    // Verify OTP
-    const isValid = otpService.verifyOTP(mobileNumber, otp, storedOTP.hash);
-    
-    if (!isValid) {
-      // Increment attempts
-      const attempts = await storageService.incrementAttempts(mobileNumber, purpose);
-      const remainingAttempts = process.env.MAX_OTP_ATTEMPTS - attempts;
-      
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid OTP. Please try again.',
-        data: {
-          remainingAttempts: Math.max(0, remainingAttempts),
-          maxAttempts: process.env.MAX_OTP_ATTEMPTS
-        }
-      });
-    }
-
-    // OTP verified successfully - clean up
-    await storageService.deleteOTP(mobileNumber, purpose);
-
+    // OTP verified successfully
     res.status(200).json({
       success: true,
       message: 'OTP verified successfully',
       data: {
         verified: true,
-        mobileNumber,
+        mobileNumber: verificationResult.phoneNumber,
         purpose,
         verifiedAt: new Date().toISOString()
       }
@@ -213,24 +179,8 @@ router.post('/resend', [
 
     const { mobileNumber, purpose } = req.body;
 
-    // Delete existing OTP
-    await storageService.deleteOTP(mobileNumber, purpose);
-
-    // Update rate limit
-    await storageService.storeRateLimit(mobileNumber, purpose);
-
     // Send new OTP
     const otpResult = await otpService.sendOTP(mobileNumber, purpose);
-    
-    // Store new OTP data
-    const stored = await storageService.storeOTP(mobileNumber, purpose, otpResult);
-    
-    if (!stored) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to store OTP data'
-      });
-    }
 
     // Response
     const response = {
@@ -239,7 +189,8 @@ router.post('/resend', [
       data: {
         expiryMinutes: process.env.OTP_EXPIRY_MINUTES,
         provider: otpResult.provider,
-        messageId: otpResult.messageId
+        messageId: otpResult.messageId,
+        to: otpResult.to
       }
     };
 

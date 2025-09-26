@@ -25,7 +25,7 @@ app.use(limiter);
 
 // CORS configuration
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000'],
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080'],
   credentials: true
 }));
 
@@ -36,6 +36,11 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/otp', otpRoutes);
+
+// Serve test page
+app.get('/test', (req, res) => {
+  res.sendFile(__dirname + '/test-otp.html');
+});
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

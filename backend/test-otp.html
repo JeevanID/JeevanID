@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OTP Backend Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        button { padding: 10px 20px; margin: 10px 0; }
+        .response { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #ffe6e6; border: 1px solid #ffcccc; }
+        .success { background: #e6ffe6; border: 1px solid #ccffcc; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>JeevanID OTP Backend Test</h1>
+        
+        <h3>Test 1: Health Check</h3>
+        <button onclick="testHealth()">Test Backend Health</button>
+        <div id="healthResult" class="response"></div>
+        
+        <h3>Test 2: Send OTP</h3>
+        <input type="text" id="mobileNumber" placeholder="Enter mobile number (e.g., 7037119535)" value="7037119535">
+        <button onclick="testSendOTP()">Send OTP</button>
+        <div id="sendResult" class="response"></div>
+        
+        <h3>Test 3: Verify OTP</h3>
+        <input type="text" id="otpCode" placeholder="Enter OTP (Demo: 123456)" value="123456">
+        <button onclick="testVerifyOTP()">Verify OTP</button>
+        <div id="verifyResult" class="response"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000/api';
+        
+        async function makeRequest(endpoint, options = {}) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers,
+                    },
+                    ...options,
+                });
+                
+                const data = await response.json();
+                return { success: response.ok, data, status: response.status };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+        
+        async function testHealth() {
+            const result = document.getElementById('healthResult');
+            result.innerHTML = 'Testing...';
+            
+            const response = await makeRequest('/health');
+            
+            if (response.success) {
+                result.className = 'response success';
+                result.innerHTML = `✅ Success: ${JSON.stringify(response.data, null, 2)}`;
+            } else {
+                result.className = 'response error';
+                result.innerHTML = `❌ Error: ${response.error || JSON.stringify(response.data, null, 2)}`;
+            }
+        }
+        
+        async function testSendOTP() {
+            const mobileNumber = document.getElementById('mobileNumber').value;
+            const result = document.getElementById('sendResult');
+            result.innerHTML = 'Sending OTP...';
+            
+            if (!mobileNumber) {
+                result.className = 'response error';
+                result.innerHTML = '❌ Please enter a mobile number';
+                return;
+            }
+            
+            const response = await makeRequest('/otp/send', {
+                method: 'POST',
+                body: JSON.stringify({
+                    mobileNumber: mobileNumber.startsWith('+91') ? mobileNumber : '+91' + mobileNumber,
+                    purpose: 'signup'
+                })
+            });
+            
+            if (response.success) {
+                result.className = 'response success';
+                result.innerHTML = `✅ OTP Sent Successfully!<br><pre>${JSON.stringify(response.data, null, 2)}</pre>`;
+            } else {
+                result.className = 'response error';
+                result.innerHTML = `❌ Failed to send OTP<br><pre>${JSON.stringify(response.data || response.error, null, 2)}</pre>`;
+            }
+        }
+        
+        async function testVerifyOTP() {
+            const mobileNumber = document.getElementById('mobileNumber').value;
+            const otpCode = document.getElementById('otpCode').value;
+            const result = document.getElementById('verifyResult');
+            result.innerHTML = 'Verifying OTP...';
+            
+            if (!mobileNumber || !otpCode) {
+                result.className = 'response error';
+                result.innerHTML = '❌ Please enter both mobile number and OTP';
+                return;
+            }
+            
+            const response = await makeRequest('/otp/verify', {
+                method: 'POST',
+                body: JSON.stringify({
+                    mobileNumber: mobileNumber.startsWith('+91') ? mobileNumber : '+91' + mobileNumber,
+                    otp: otpCode,
+                    purpose: 'signup'
+                })
+            });
+            
+            if (response.success) {
+                result.className = 'response success';
+                result.innerHTML = `✅ OTP Verified Successfully!<br><pre>${JSON.stringify(response.data, null, 2)}</pre>`;
+            } else {
+                result.className = 'response error';
+                result.innerHTML = `❌ OTP Verification Failed<br><pre>${JSON.stringify(response.data || response.error, null, 2)}</pre>`;
+            }
+        }
+    </script>
+</body>
+</html>
