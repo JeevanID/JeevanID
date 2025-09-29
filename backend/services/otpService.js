@@ -12,6 +12,11 @@ class OTPService {
       );
     }
 
+    // MSG91 Configuration
+    this.msg91AuthKey = process.env.MSG91_AUTH_KEY;
+    this.msg91SenderId = process.env.MSG91_SENDER_ID || 'JEEVAN';
+    this.msg91Route = process.env.MSG91_ROUTE || '4';
+
     // OTP storage for demo mode
     this.otpStorage = new Map();
 
@@ -114,6 +119,59 @@ class OTPService {
     }
   }
 
+  // Send OTP via MSG91 (Works for ANY number)
+  async sendSMSViaMSG91(phoneNumber, otp, purpose = 'verification') {
+    if (!this.msg91AuthKey) {
+      throw new Error('MSG91 Auth Key not configured');
+    }
+
+    try {
+      const cleanPhone = this.cleanMobileNumber(phoneNumber);
+      // Remove +91 for MSG91 API (expects 10-digit number)
+      const mobile = cleanPhone.replace('+91', '');
+      
+      const message = this.formatOTPMessage(otp, purpose);
+      
+      const requestBody = {
+        authkey: this.msg91AuthKey,
+        mobiles: mobile,
+        message: message,
+        sender: this.msg91SenderId,
+        route: this.msg91Route,
+        country: '91'
+      };
+
+      console.log(`📱 [MSG91] Sending SMS to ${mobile}`);
+      console.log(`📱 [MSG91] Message: ${message}`);
+
+      const response = await fetch('https://api.msg91.com/api/sendhttp.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      const responseText = await response.text();
+      console.log(`📱 [MSG91] Response:`, responseText);
+
+      // MSG91 returns success codes like "5134849748393881603" or error messages
+      if (responseText && !responseText.toLowerCase().includes('error')) {
+        return {
+          success: true,
+          messageId: responseText.trim(),
+          provider: 'msg91',
+          to: cleanPhone
+        };
+      } else {
+        throw new Error(`MSG91 API Error: ${responseText}`);
+      }
+    } catch (error) {
+      console.error('MSG91 SMS Error:', error);
+      throw new Error(`Failed to send SMS via MSG91: ${error.message}`);
+    }
+  }
+
   // Send OTP via Email (fallback option)
   async sendOTPViaEmail(email, otp, purpose = 'verification') {
     const subject = `JeevanID - Your OTP for ${purpose}`;
@@ -159,12 +217,13 @@ class OTPService {
   async sendOTP(phoneNumber, purpose = 'verification') {
     const cleanPhone = this.cleanMobileNumber(phoneNumber);
     const expiryTime = new Date(Date.now() + (process.env.OTP_EXPIRY_MINUTES * 60 * 1000));
+    const otp = this.generateOTP();
     
     let result;
     
     try {
       if (this.demoMode) {
-        const otp = this.generateOTP();
+        // Pure demo mode
         this.storeOTPForDemo(cleanPhone, otp, purpose);
         result = await this.sendMockSMS(cleanPhone, otp, purpose);
         
@@ -176,17 +235,86 @@ class OTPService {
           messageId: result.messageId,
           to: cleanPhone
         };
+      } else if (this.msg91AuthKey) {
+        // Try MSG91 first (works for ANY number)
+        try {
+          this.storeOTPForDemo(cleanPhone, otp, purpose); // Store for verification
+          result = await this.sendSMSViaMSG91(cleanPhone, otp, purpose);
+          
+          console.log(`✅ MSG91 SMS sent successfully to ${cleanPhone}`);
+          return {
+            success: true,
+            expiryTime: expiryTime,
+            provider: result.provider,
+            messageId: result.messageId,
+            to: result.to,
+            message: 'Real SMS sent to your phone via MSG91!'
+          };
+        } catch (msg91Error) {
+          console.log(`⚠️  MSG91 SMS failed, trying Twilio: ${msg91Error.message}`);
+          
+          // Fallback to Twilio if MSG91 fails
+          if (this.twilioClient && process.env.TWILIO_VERIFY_SERVICE_SID) {
+            try {
+              result = await this.sendSMSViaTwilio(cleanPhone, purpose);
+              
+              return {
+                success: true,
+                expiryTime: expiryTime,
+                provider: result.provider,
+                messageId: result.messageId,
+                status: result.status,
+                to: result.to
+              };
+            } catch (twilioError) {
+              console.log(`⚠️  Both MSG91 and Twilio failed, using demo mode`);
+            }
+          }
+          
+          // Final fallback to demo mode
+          this.storeOTPForDemo(cleanPhone, otp, purpose);
+          result = await this.sendMockSMS(cleanPhone, otp, purpose);
+          
+          return {
+            success: true,
+            otp: otp, // Return OTP in fallback mode
+            expiryTime: expiryTime,
+            provider: 'demo-fallback',
+            messageId: result.messageId,
+            to: cleanPhone,
+            fallbackReason: 'SMS providers failed - using demo mode'
+          };
+        }
       } else if (this.twilioClient && process.env.TWILIO_VERIFY_SERVICE_SID) {
-        result = await this.sendSMSViaTwilio(cleanPhone, purpose);
-        
-        return {
-          success: true,
-          expiryTime: expiryTime,
-          provider: result.provider,
-          messageId: result.messageId,
-          status: result.status,
-          to: result.to
-        };
+        // Twilio only (limited to verified numbers)
+        try {
+          result = await this.sendSMSViaTwilio(cleanPhone, purpose);
+          
+          return {
+            success: true,
+            expiryTime: expiryTime,
+            provider: result.provider,
+            messageId: result.messageId,
+            status: result.status,
+            to: result.to
+          };
+        } catch (twilioError) {
+          console.log(`⚠️  Twilio SMS failed for ${cleanPhone}, falling back to demo mode`);
+          
+          // Fallback to demo mode for unverified numbers
+          this.storeOTPForDemo(cleanPhone, otp, purpose);
+          result = await this.sendMockSMS(cleanPhone, otp, purpose);
+          
+          return {
+            success: true,
+            otp: otp, // Return OTP in fallback mode
+            expiryTime: expiryTime,
+            provider: 'demo-fallback',
+            messageId: result.messageId,
+            to: cleanPhone,
+            fallbackReason: 'Twilio SMS failed - likely unverified number or trial account limit'
+          };
+        }
       } else {
         throw new Error('No SMS provider configured');
       }
@@ -203,17 +331,37 @@ class OTPService {
     try {
       if (this.demoMode) {
         return this.verifyDemoOTP(cleanPhone, code);
-      } else if (this.twilioClient && process.env.TWILIO_VERIFY_SERVICE_SID) {
-        const result = await this.verifyOTPViaTwilio(cleanPhone, code);
-        return {
-          success: result.success,
-          verified: result.success,
-          status: result.status,
-          phoneNumber: cleanPhone,
-          purpose: purpose
-        };
       } else {
-        throw new Error('No verification service configured');
+        // For MSG91 and other providers, we store OTP locally for verification
+        const storedData = this.otpStorage.get(cleanPhone);
+        if (storedData) {
+          console.log(`🔍 Verifying stored OTP for ${cleanPhone}`);
+          return this.verifyDemoOTP(cleanPhone, code);
+        }
+        
+        // If no stored OTP, try Twilio Verify service
+        if (this.twilioClient && process.env.TWILIO_VERIFY_SERVICE_SID) {
+          try {
+            const result = await this.verifyOTPViaTwilio(cleanPhone, code);
+            return {
+              success: result.success,
+              verified: result.success,
+              status: result.status,
+              phoneNumber: cleanPhone,
+              purpose: purpose
+            };
+          } catch (twilioError) {
+            console.log(`⚠️  Twilio verification failed for ${cleanPhone}: ${twilioError.message}`);
+          }
+        }
+        
+        // If all else fails
+        return {
+          success: false,
+          verified: false,
+          message: 'No OTP found for this number. Please request a new OTP.',
+          error: 'OTP_NOT_FOUND'
+        };
       }
     } catch (error) {
       console.error('OTP Verify Error:', error);
