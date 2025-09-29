@@ -33,11 +33,21 @@ export function Signup() {
   const { isLoading: otpLoading, error, otpSent, sendOTP, verifyOTP, resendOTP } = useOTP({
     onSendSuccess: (response) => {
       console.log('✅ Signup: OTP sent successfully, moving to step 2', response);
-      // Show the OTP if in demo mode
-      if (response.data?.otp) {
-        console.log('🎯 Demo OTP:', response.data.otp);
-        alert(`Demo Mode: OTP is ${response.data.otp}`);
+      
+      // Handle different OTP sending scenarios
+      const data = response.data;
+      if (data?.provider === 'msg91') {
+        alert(`📱 Real SMS sent via MSG91! Check your phone for the OTP.`);
+      } else if (data?.provider === 'twilio-verify') {
+        alert(`📱 Real SMS sent via Twilio! Check your phone for the OTP.`);
+      } else if (data?.provider === 'demo-fallback') {
+        alert(`⚠️ SMS failed - Demo OTP: ${data.otp}\n\nReason: ${data.fallbackReason}`);
+      } else if (data?.otp) {
+        alert(`📱 Demo Mode - OTP: ${data.otp}`);
+      } else {
+        alert(`📱 OTP sent successfully! Check your phone.`);
       }
+      
       setCurrentStep(2);
     },
     onSendError: (error) => {

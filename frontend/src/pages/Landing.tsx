@@ -34,10 +34,12 @@ export function Landing() {
     <div className="min-h-screen bg-gradient-to-br from-primary/5 to-secondary/5">
       {/* Header */}
       <header className="p-6 flex justify-between items-center">
-        <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 jeevan-gradient rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">J</span>
-          </div>
+        <div className="flex items-center space-x-3">
+          <img 
+            src="/jeevanid logo.png" 
+            alt="JeevanID Logo" 
+            className="w-10 h-10 object-contain"
+          />
           <span className="font-bold text-xl text-foreground">JeevanID</span>
         </div>
         <LanguageSwitcher />
@@ -46,16 +48,19 @@ export function Landing() {
       {/* Hero Section */}
       <main className="container mx-auto px-6 py-12">
         <div className="text-center space-y-8 max-w-4xl mx-auto">
-          <h1 className="jeevan-hero-text">
-            Your Digital Identity,
-            <br />
-            Everywhere
-          </h1>
-          
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            Get your unique JeevanID and join millions of Indians in the digital identity revolution. 
-            Secure, simple, and accessible in your language.
-          </p>
+          {/* Hero Content */}
+          <div>
+            <h1 className="jeevan-hero-text">
+              Your Digital Identity,
+              <br />
+              Everywhere
+            </h1>
+            
+            <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+              Get your unique JeevanID and join millions of Indians in the digital identity revolution. 
+              Secure, simple, and accessible in your language.
+            </p>
+          </div>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <Button 

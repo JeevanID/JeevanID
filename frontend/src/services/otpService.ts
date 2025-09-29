@@ -19,7 +19,7 @@ export interface VerifyOTPRequest {
 }
 
 class OTPService {
-  private baseURL = 'http://localhost:3000/api';
+  private baseURL = 'https://jeevanid-a6lp.onrender.com/api';
 
   // Make HTTP request with error handling
   private async makeRequest(endpoint: string, options: RequestInit): Promise<OTPResponse> {
