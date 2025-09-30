@@ -1,0 +1,11 @@
+build:
+  commands:
+    - npm ci
+    - npm run migrate
+start:
+  command: npm start
+healthcheck:
+  path: /api/health
+  interval: 30s
+  timeout: 10s
+  retries: 3
