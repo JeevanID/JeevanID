@@ -1,5 +1,5 @@
 // User Service for handling user-related API calls
-
+const baseURL = "https://jeevanid-production.up.railway.app/api";
 export interface UserResponse {
   success: boolean;
   message: string;

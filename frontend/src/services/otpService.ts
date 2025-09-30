@@ -1,5 +1,27 @@
 // OTP Service for handling OTP-related API calls
+const baseURL = "https://jeevanid-production.up.railway.app/api";
+const isDevelopment = import.meta.env.MODE === 'development';
 
+export const API_CONFIG = {
+  BASE_URL: isDevelopment 
+    ? 'http://localhost:3000/api'
+    : 'https://jeevanid-production.up.railway.app/api',
+  
+  ENDPOINTS: {
+    OTP: {
+      SEND: '/otp/send',
+      VERIFY: '/otp/verify'
+    },
+    USERS: {
+      REGISTER: '/users/register',
+      LOGIN: '/users/login',
+      PROFILE: '/users/profile'
+    },
+    HEALTH: '/health'
+  }
+};
+
+console.log('⚙️ API Configuration loaded:', API_CONFIG);
 export interface OTPResponse {
   success: boolean;
   message: string;
