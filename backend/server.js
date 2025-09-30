@@ -44,10 +44,31 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use(limiter);
+app.get('/', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'JeevanID Backend is running!',
+    timestamp: new Date().toISOString(),
+    routes: ['/api/health', '/api/otp', '/api/users']
+  });
+});
+app.get('/api', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'JeevanID API is working!',
+    endpoints: {
+      health: '/api/health',
+      sendOTP: 'POST /api/otp/send',
+      verifyOTP: 'POST /api/otp/verify',
+      register: 'POST /api/users/register',
+      login: 'POST /api/users/login'
+    }
+  });
+});
 
 // CORS configuration
 app.use(cors({
-  origin: ['https://jeevan-id.vercel.app/', 'http://localhost:3000'],
+  origin: ['https://jeevan-id.vercel.app/', 'http://localhost:3000',"https://jeevanid-production.up.railway.app/"],
   credentials: true
 }));
 
