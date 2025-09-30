@@ -19,7 +19,7 @@ export interface VerifyOTPRequest {
 }
 
 class OTPService {
-  private baseURL = 'https://jeevanid-a6lp.onrender.com/api';
+  private baseURL = import.meta.env.VITE_API_URL || 'https://jeevanid-production.up.railway.app/api';
 
   // Make HTTP request with error handling
   private async makeRequest(endpoint: string, options: RequestInit): Promise<OTPResponse> {
