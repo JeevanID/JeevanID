@@ -1,0 +1,13 @@
+{
+  "name": "jeevanid-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "cd backend && npm start",
+    "build": "cd backend && npm ci --only=production && node migrate.js migrate",
+    "dev": "cd backend && npm run dev"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

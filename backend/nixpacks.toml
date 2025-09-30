@@ -1,17 +1,19 @@
 [phases.setup]
 nixPkgs = ['nodejs_18']
+aptPkgs = ['curl']
 
 [phases.install]
 cmds = ['npm ci --only=production']
 
-[phases.build]
+[phases.build] 
 cmds = ['node migrate.js migrate || echo "Migration failed, continuing"']
 
 [start]
 cmd = 'npm start'
 
 [variables]
-NODE_ENV = 'production'up]
+NODE_ENV = 'production'
+PORT = '8080'up]
 nixPkgs = ['nodejs_18']
 
 [phases.install]

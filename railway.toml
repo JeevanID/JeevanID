@@ -1,0 +1,16 @@
+[build]
+builder = "nixpacks"
+buildCommand = "cd backend && npm ci --only=production && node migrate.js migrate"
+
+[deploy]
+startCommand = "cd backend && npm start"
+restartPolicyType = "always"
+restartPolicyMaxRetries = 10
+
+[[services]]
+name = "backend"
+source = "backend"
+
+[services.healthcheck]
+path = "/api/health"
+port = 8080

@@ -1,0 +1,8 @@
+frontend/
+.git/
+*.log
+.DS_Store
+node_modules/
+.env.local
+.env.development
+.env.test
