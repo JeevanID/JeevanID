@@ -3,10 +3,32 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { Pool } = require('pg');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// PostgreSQL connection pool
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Test PostgreSQL connection
+pool.connect()
+  .then(client => {
+    console.log('✅ Connected to PostgreSQL database');
+    client.release();
+  })
+  .catch(err => {
+    console.error('❌ PostgreSQL connection error:', err.message);
+    console.log('⚠️  Server will continue running without PostgreSQL. User data will be stored in memory only.');
+    // Don't exit the process, continue running for OTP functionality
+  });
+
+// Make pool available to routes
+app.locals.db = pool;
 
 // Import routes
 const userRoutes = require('./routes/userRoutes');

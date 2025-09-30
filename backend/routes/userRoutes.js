@@ -2,11 +2,17 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const User = require('../models/User');
 
 const router = express.Router();
 
-// Mock user database (replace with actual database in production)
+// Fallback memory storage
 const users = new Map();
+
+// Check if PostgreSQL is connected
+const isDatabaseConnected = (req) => {
+  return req.app.locals.db && User;
+};
 
 // Validation middleware
 const validateUserRegistration = [
@@ -53,54 +59,94 @@ router.post('/register', validateUserRegistration, async (req, res) => {
 
     const { fullName, mobileNumber, dateOfBirth, aadhaar } = req.body;
 
-    // Check if user already exists
-    if (users.has(mobileNumber)) {
-      return res.status(400).json({
-        success: false,
-        message: 'User with this mobile number already exists'
+    if (isDatabaseConnected(req)) {
+      // Use PostgreSQL
+      const userModel = new User(req.app.locals.db);
+      
+      const existingUser = await userModel.findByMobile(mobileNumber);
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'User with this mobile number already exists'
+        });
+      }
+
+      const existingAadhaar = await userModel.findByAadhaar(aadhaar);
+      if (existingAadhaar) {
+        return res.status(400).json({
+          success: false,
+          message: 'User with this Aadhaar number already exists'
+        });
+      }
+
+      const jeevanId = generateJeevanID();
+      
+      const savedUser = await userModel.create({
+        jeevanId,
+        fullName,
+        mobileNumber,
+        dateOfBirth: new Date(dateOfBirth),
+        aadhaar,
+        isVerified: true
+      });
+
+      const token = generateToken(savedUser.id);
+
+      res.status(201).json({
+        success: true,
+        message: 'User registered successfully',
+        data: {
+          user: userModel.toSafeObject(savedUser),
+          token
+        }
+      });
+    } else {
+      // Use memory storage
+      if (users.has(mobileNumber)) {
+        return res.status(400).json({
+          success: false,
+          message: 'User with this mobile number already exists'
+        });
+      }
+
+      const jeevanId = generateJeevanID();
+      const userId = `user_${Date.now()}`;
+      
+      const userData = {
+        id: userId,
+        jeevanId,
+        fullName,
+        mobileNumber,
+        dateOfBirth,
+        aadhaar: await bcrypt.hash(aadhaar, 10),
+        createdAt: new Date(),
+        profilePhoto: null,
+        verified: true
+      };
+
+      users.set(mobileNumber, userData);
+      users.set(jeevanId, userData);
+
+      const token = generateToken(userId);
+
+      res.status(201).json({
+        success: true,
+        message: 'User registered successfully (memory storage)',
+        data: {
+          user: {
+            id: userData.id,
+            jeevanId: userData.jeevanId,
+            fullName: userData.fullName,
+            mobileNumber: userData.mobileNumber,
+            dateOfBirth: userData.dateOfBirth,
+            profilePhoto: userData.profilePhoto,
+            verified: userData.verified,
+            createdAt: userData.createdAt
+          },
+          token
+        }
       });
     }
-
-    // Create new user
-    const jeevanId = generateJeevanID();
-    const userId = `user_${Date.now()}`;
-    
-    const userData = {
-      id: userId,
-      jeevanId,
-      fullName,
-      mobileNumber,
-      dateOfBirth,
-      aadhaar: await bcrypt.hash(aadhaar, 10), // Hash Aadhaar for security
-      createdAt: new Date(),
-      profilePhoto: null,
-      verified: true // Since they completed OTP verification
-    };
-
-    // Store user
-    users.set(mobileNumber, userData);
-    users.set(jeevanId, userData); // Allow lookup by JeevanID too
-
-    // Generate token
-    const token = generateToken(userId);
-
-    res.status(201).json({
-      success: true,
-      message: 'User registered successfully',
-      data: {
-        user: {
-          id: userData.id,
-          jeevanId: userData.jeevanId,
-          fullName: userData.fullName,
-          mobileNumber: userData.mobileNumber,
-          dateOfBirth: userData.dateOfBirth,
-          profilePhoto: userData.profilePhoto,
-          verified: userData.verified,
-          createdAt: userData.createdAt
-        },
-        token
-      }
-    });
 
   } catch (error) {
     console.error('User Registration Error:', error);
@@ -128,38 +174,73 @@ router.post('/login', validateUserLogin, async (req, res) => {
     }
 
     const { mobileNumber, jeevanId } = req.body;
-    const identifier = mobileNumber || jeevanId;
 
-    // Find user
-    const userData = users.get(identifier);
-    
-    if (!userData) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found. Please register first.'
+    if (isDatabaseConnected(req)) {
+      // Use PostgreSQL
+      const userModel = new User(req.app.locals.db);
+      
+      // Find user by mobile number or JeevanID
+      let user;
+      if (mobileNumber) {
+        user = await userModel.findByMobile(mobileNumber);
+      } else if (jeevanId) {
+        user = await userModel.findByJeevanId(jeevanId);
+      }
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found. Please register first.'
+        });
+      }
+
+      // Update last login
+      await userModel.updateLastLogin(user.id);
+
+      // Generate token
+      const token = generateToken(user.id);
+
+      res.status(200).json({
+        success: true,
+        message: 'Login successful',
+        data: {
+          user: userModel.toSafeObject(user),
+          token
+        }
+      });
+    } else {
+      // Use memory storage
+      const identifier = mobileNumber || jeevanId;
+      const userData = users.get(identifier);
+      
+      if (!userData) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found. Please register first.'
+        });
+      }
+
+      // Generate token
+      const token = generateToken(userData.id);
+
+      res.status(200).json({
+        success: true,
+        message: 'Login successful',
+        data: {
+          user: {
+            id: userData.id,
+            jeevanId: userData.jeevanId,
+            fullName: userData.fullName,
+            mobileNumber: userData.mobileNumber,
+            dateOfBirth: userData.dateOfBirth,
+            profilePhoto: userData.profilePhoto,
+            verified: userData.verified,
+            createdAt: userData.createdAt
+          },
+          token
+        }
       });
     }
-
-    // Generate token
-    const token = generateToken(userData.id);
-
-    res.status(200).json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        user: {
-          id: userData.id,
-          jeevanId: userData.jeevanId,
-          fullName: userData.fullName,
-          mobileNumber: userData.mobileNumber,
-          dateOfBirth: userData.dateOfBirth,
-          profilePhoto: userData.profilePhoto,
-          verified: userData.verified,
-          createdAt: userData.createdAt
-        },
-        token
-      }
-    });
 
   } catch (error) {
     console.error('User Login Error:', error);
@@ -178,30 +259,56 @@ router.get('/profile/:identifier', async (req, res) => {
   try {
     const { identifier } = req.params;
     
-    const userData = users.get(identifier);
-    
-    if (!userData) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
+    if (isDatabaseConnected(req)) {
+      // Use PostgreSQL
+      const userModel = new User(req.app.locals.db);
+      
+      // Try to find by mobile number or JeevanID
+      let user = await userModel.findByMobile(identifier);
+      if (!user) {
+        user = await userModel.findByJeevanId(identifier);
+      }
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          user: userModel.toSafeObject(user)
+        }
+      });
+    } else {
+      // Use memory storage
+      const userData = users.get(identifier);
+      
+      if (!userData) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          user: {
+            id: userData.id,
+            jeevanId: userData.jeevanId,
+            fullName: userData.fullName,
+            mobileNumber: userData.mobileNumber,
+            dateOfBirth: userData.dateOfBirth,
+            profilePhoto: userData.profilePhoto,
+            verified: userData.verified,
+            createdAt: userData.createdAt
+          }
+        }
       });
     }
-
-    res.status(200).json({
-      success: true,
-      data: {
-        user: {
-          id: userData.id,
-          jeevanId: userData.jeevanId,
-          fullName: userData.fullName,
-          mobileNumber: userData.mobileNumber,
-          dateOfBirth: userData.dateOfBirth,
-          profilePhoto: userData.profilePhoto,
-          verified: userData.verified,
-          createdAt: userData.createdAt
-        }
-      }
-    });
 
   } catch (error) {
     console.error('Get Profile Error:', error);
@@ -225,30 +332,46 @@ router.get('/list', async (req, res) => {
   }
 
   try {
-    const userList = [];
-    const seenIds = new Set();
-    
-    for (const [key, userData] of users.entries()) {
-      if (!seenIds.has(userData.id)) {
-        seenIds.add(userData.id);
-        userList.push({
-          id: userData.id,
-          jeevanId: userData.jeevanId,
-          fullName: userData.fullName,
-          mobileNumber: userData.mobileNumber,
-          verified: userData.verified,
-          createdAt: userData.createdAt
-        });
-      }
-    }
+    if (isDatabaseConnected(req)) {
+      // Use PostgreSQL
+      const userModel = new User(req.app.locals.db);
+      
+      const usersList = await userModel.findAll(50);
 
-    res.status(200).json({
-      success: true,
-      data: {
-        users: userList,
-        total: userList.length
+      res.status(200).json({
+        success: true,
+        data: {
+          users: usersList.map(user => userModel.toSafeObject(user)),
+          total: usersList.length
+        }
+      });
+    } else {
+      // Use memory storage
+      const userList = [];
+      const seenIds = new Set();
+      
+      for (const [key, userData] of users.entries()) {
+        if (!seenIds.has(userData.id)) {
+          seenIds.add(userData.id);
+          userList.push({
+            id: userData.id,
+            jeevanId: userData.jeevanId,
+            fullName: userData.fullName,
+            mobileNumber: userData.mobileNumber,
+            verified: userData.verified,
+            createdAt: userData.createdAt
+          });
+        }
       }
-    });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          users: userList,
+          total: userList.length
+        }
+      });
+    }
 
   } catch (error) {
     console.error('List Users Error:', error);
